@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Driver output (regenerable)
+runs/
+
+# Large MATLAB workspace dumps (regenerable from the simulator)
+matlab_original/IndPenSim_V2_export_V*.mat
+matlab_original/IndPenSim_V2_export_V*.csv
+
+# Original MATLAB source archive (download from upstream — see README)
+matlab_original/*.zip
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.vscode/
+.idea/
+.claude/

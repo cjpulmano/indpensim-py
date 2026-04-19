@@ -1,0 +1,9 @@
+{
+  "seed": 42,
+  "batch_index": 1,
+  "batch_ref": "Batch_01",
+  "n_samples": 1085,
+  "sample_period_h": 0.2,
+  "has_raman": 1,
+  "matlab_version": "26.1.0.3203278 (R2026a)"
+}
