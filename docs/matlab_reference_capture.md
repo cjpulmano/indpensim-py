@@ -2,22 +2,33 @@
 
 This is the **only** thing you need to do in MATLAB during the entire port. After this, all work is Python-side.
 
+> **For multi-config validation runs** (the current canonical workflow
+> — 12 configs covering fault branches, the Raman PAA loop, and
+> variable-length batches), use `scripts/matlab_run_validation_set.m`
+> and see [VALIDATION.md](../VALIDATION.md). The steps below describe
+> the older single-batch dump flow used to produce the seed-42
+> reference, which is still valid for one-off captures.
+
 ## What you'll produce
 
-For each reference batch you run, three files land under `data/matlab_reference/`:
+For each reference batch you run, these files land under `data/matlab_reference/`:
 
-- `batch_seed<S>_b<NN>_states.csv` — full per-sample trajectory: time + 33 ODE states + 12 manipulated inputs. Two header rows (field name, units), then ~570 sample rows.
+- `batch_seed<S>_b<NN>_initconds.mat` — captured x0, randomized parameters (`alpha_kla`, `PAA_c`, `N_conc_paa`), disturbance trajectories, and control flags. Required by Python to seed a bit-reproducible simulation; produced by `scripts/matlab_capture_with_x0.m` (or the consolidated `matlab_capture_validation_batch.m`).
+- `batch_seed<S>_b<NN>_states.csv` — full per-sample trajectory: time + 33 ODE states + 12 manipulated inputs. Two header rows (field name, units), then ~1100 sample rows.
 - `batch_seed<S>_b<NN>_raman.csv` — 2200 Raman wavenumbers × N samples (only if Raman recording was enabled for that batch).
 - `batch_seed<S>_b<NN>_meta.json` — seed, batch flags, sample count, MATLAB version. Used by Python validation harness to know what to load.
 
-These are the immutable reference. The Python port is "done" when its trajectories match these CSVs within trajectory tolerances.
+These are the immutable reference. The Python port is "done" when its trajectories match these files within the bounds documented in [VALIDATION.md](../VALIDATION.md).
 
 ## Steps
 
 ### One-time setup
 1. Install MATLAB (R2019a or later — same era as the original code). Required toolboxes: **Signal Processing** (`sgolayfilt`) and **Curve Fitting** (`smooth`). Nothing else.
-2. Open MATLAB in this project root: `<repo-root>/IndPenSim_V2.02`.
-3. Add the project to the path:
+2. Extract the original simulator (one-time):
+   ```bash
+   unzip matlab_original/IndPenSim_V2.01.zip
+   ```
+3. Open MATLAB at the repo root and add everything to the path:
    ```matlab
    addpath(genpath(pwd))
    ```

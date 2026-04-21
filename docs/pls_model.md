@@ -80,12 +80,19 @@ class PAAPLSModel:
 
 The 3-point averaging is *temporal* (depends on prior predictions), so it belongs in the calling loop, not in `predict_raw`.
 
-## Validation target
+## Validation
 
-Once MATLAB reference is captured (Phase 1), `tests/test_pls_model.py` should:
-1. Load one MATLAB-saved Raman spectrum.
-2. Run `PAAPLSModel.predict_raw` on it.
-3. Compare against the corresponding `X.PAA_pred.y(j)` scalar (pre-averaging).
-4. Assert `abs(py - matlab) < 1e-9` — pure linear algebra, should match to machine precision modulo `savgol_filter` boundary handling.
+MATLAB parity for the full pipeline (Raman spectrum → Savitzky-Golay
+smoothing → PLS prediction → 3-point temporal averaging) is covered by
+`tests/test_substrate.py:26` (`test_paa_pred_matches_matlab`). It:
 
-**Boundary handling is the one risk.** `scipy.signal.savgol_filter` defaults to `mode='interp'` (polynomial extrapolation at edges); MATLAB `sgolayfilt` uses a different boundary scheme. With window=5 only the first 2 and last 2 samples differ; for 2200-bin spectra the impact on the 350..500 + 800..860 windows should be zero. Verify empirically once we have a reference spectrum.
+1. Loads the captured MATLAB Raman CSV (2200 × N).
+2. Runs `predict_and_store` for every sample in the batch.
+3. Compares the resulting `PAA_pred` trajectory against MATLAB's
+   `X.PAA_pred.y` dump.
+
+The test passes at ~5×10⁻¹⁰ (machine-precision) agreement, confirming
+the linear-algebra path matches and — in practice — that
+`scipy.signal.savgol_filter` boundary handling is irrelevant for our
+windows (the 350..500 and 800..860 slices don't touch the first/last 2
+samples where `mode='interp'` differs from MATLAB `sgolayfilt`).

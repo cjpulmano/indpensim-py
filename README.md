@@ -2,7 +2,10 @@
 
 Python port of **IndPenSim V2.02** — an industrial-scale fed-batch penicillin
 fermentation simulator. The original is MATLAB; this is a faithful end-to-end
-Python port validated against the MATLAB output to within 1% on every state.
+Python port validated against MATLAB reference trajectories — mean
+peak-normalized error under 1% on most states across 12 distinct configs
+(see [VALIDATION.md](VALIDATION.md) for the full picture, including the
+three channels where closed-loop solver amplification leaves wider bounds).
 
 ## What this is
 
@@ -95,20 +98,15 @@ tests/                - 136 tests (states, controller, ODE, PLS, end-to-end)
 ## Validation
 
 Tests compare against MATLAB-captured trajectories from the original simulator.
-End-to-end batch trajectory matches MATLAB:
+Three layers: ODE-only playback, single-seed end-to-end, and a 12-config
+multi-seed suite covering each fault branch, the Raman closed-loop PAA
+controller, and variable-length batches.
 
-| Channel       | Mean rel. err. |
-|---------------|----------------|
-| pH, T         | 0.005-0.02%    |
-| V, Wt         | 0.006%         |
-| P (penicillin)| 0.02%          |
-| Vacuoles n0..nm | 0.1-0.5%     |
-| Q (heat int.) | ~5% *          |
-| PLS PAA pred. | 5e-10 (machine precision) |
-
-\* The heat integral Q is highly sensitive to controller-feedback amplification
-of solver-tolerance differences (BDF vs ode15s); see `tests/test_simulation.py`
-for discussion.
+End-to-end batch trajectory matches MATLAB on the validated configs within
+tight per-channel bounds (mean peak-normalized error <1% on most channels).
+See [VALIDATION.md](VALIDATION.md) for methodology, the solver-tolerance
+decision (production uses `rtol=1e-3` for speed; validation uses `rtol=1e-6`),
+per-channel thresholds, and known limits.
 
 Run the full suite:
 

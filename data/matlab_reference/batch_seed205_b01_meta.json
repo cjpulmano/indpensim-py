@@ -1,0 +1,11 @@
+{
+  "seed": 205,
+  "batch_index": 1,
+  "faults": 5,
+  "raman_spec": 0,
+  "fixed_length": 1,
+  "n_samples": 1255,
+  "sample_period_h": 0.2,
+  "T": 251,
+  "matlab_version": "26.1.0.3203278 (R2026a)"
+}
