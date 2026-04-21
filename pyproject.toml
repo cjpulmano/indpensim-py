@@ -17,6 +17,11 @@ dev = [
 mqtt = [
     "paho-mqtt>=2.1",
 ]
+ui = [
+    "streamlit>=1.31",
+    "plotly>=5.18",
+    "paho-mqtt>=2.1",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -57,6 +57,13 @@ in pytest and matplotlib):
 uv pip install -e '.[dev]'
 ```
 
+For the Streamlit Recipe authoring / visualization UI, install the `ui`
+extra (streamlit + plotly):
+
+```bash
+uv pip install -e '.[ui]'
+```
+
 ## Run
 
 Generate a campaign of batches and dump per-batch CSVs:
@@ -153,6 +160,28 @@ When a Recipe is attached, each streaming `Sample` carries `phase`,
 `_batch_start` message with recipe metadata once per batch and emits
 `_phase_start` messages as transitions fire.
 
+### Streamlit UI (optional)
+
+A lightweight Streamlit studio for authoring and visualizing recipes
+lives in `indpensim/ui/`. Install the `ui` extra and launch:
+
+```bash
+uv pip install -e '.[ui]'
+streamlit run indpensim/ui/streamlit_app.py
+```
+
+Two pages in the sidebar:
+
+- **Authoring** — add/remove/reorder phases, edit per-channel setpoint
+  schedules in live tables (`st.data_editor`), configure hybrid time /
+  state transition triggers, validate on every interaction, save/load
+  as JSON.
+- **Visualize** — load a Recipe JSON (or use the session recipe) and
+  inspect its setpoint timeline as a stacked Plotly figure with phase
+  boundaries drawn as colored vertical bands.
+
+The in-session default is `legacy_sbc_recipe()`.
+
 ## Layout
 
 ```
@@ -181,6 +210,13 @@ indpensim/
     executor.py       - stateful RecipeExecutor (transitions, phase log)
     legacy.py         - legacy_sbc_recipe() — regression anchor
     io.py             - JSON round-trip
+  ui/                 - optional Streamlit recipe studio (needs [ui] extra)
+    streamlit_app.py  - landing page
+    pages/01_authoring.py
+    pages/02_visualize.py
+    state.py          - session state + pure form-dict helpers
+    widgets.py        - reusable phase / trigger / schedule editors
+    rendering.py      - plotly timeline figure builder
   validation/
     playback.py       - replay a captured batch with MATLAB inputs
 docs/
@@ -190,8 +226,8 @@ docs/
   matlab_reference_capture.md  - how to capture MATLAB reference data
 scripts/
   matlab_*.m          - MATLAB capture scripts
-tests/                - 643 tests (states, controller, ODE, PLS, streaming,
-                        multi-seed validation, end-to-end, recipe parity)
+tests/                - 656 tests (states, controller, ODE, PLS, streaming,
+                        multi-seed validation, end-to-end, recipe parity, UI)
 ```
 
 ## Validation
