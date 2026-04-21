@@ -14,9 +14,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import scipy.io
+
+if TYPE_CHECKING:
+    from indpensim.recipe.types import Recipe
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,10 @@ class CapturedBatch:
     T: int             # batch length [h]
     Random_seed_ref: int
     Seed_ref: int
+    # Optional recipe; when present, ``simulate`` constructs a
+    # RecipeExecutor and threads it into the controller in place of the
+    # hardcoded SBC tables. None => legacy path.
+    recipe: "Recipe | None" = None
 
 
 _DEFAULT_REF_DIR = Path(__file__).resolve().parents[2] / "data" / "matlab_reference"

@@ -37,6 +37,7 @@ from indpensim.ode.rhs import N_STATES, rhs
 from indpensim.pat.pls_model import PAAPLSModel
 from indpensim.pat.raman import build_reference, simulate_spectrum
 from indpensim.pat.substrate import predict_and_store
+from indpensim.recipe.executor import RecipeExecutor
 from indpensim.streaming.sample import Sample, StreamConfig
 
 _REFERENCE_SPECTRA_PATH = Path(__file__).resolve().parents[1] / "data" / "reference_Specra.txt"
@@ -223,6 +224,12 @@ class _SimulationRun:
             self.raman_rng = raman_rng
         self.pls = PAAPLSModel.load() if self.ctrl_flags.Raman_spec == 2 else None
 
+        # Recipe path — optional. When cap.recipe is present, construct
+        # an executor and thread it into every controller_step.
+        self.recipe_exec: RecipeExecutor | None = (
+            RecipeExecutor(recipe=cap.recipe, h=self.h) if cap.recipe is not None else None
+        )
+
     # ------------------------------------------------------------------
     def step(self, k: int) -> Sample:
         """Advance integrator one ODE interval. Returns the user-facing Sample."""
@@ -234,7 +241,10 @@ class _SimulationRun:
                 self.par[1] = self.history.y("mu_X_calc", k - 1) * 5.0
 
         # ---- 2. Controller
-        u = controller_step(self.history, self.Xd, k, self.h, self.T, self.ctrl_flags)
+        u = controller_step(
+            self.history, self.Xd, k, self.h, self.T, self.ctrl_flags,
+            recipe_exec=self.recipe_exec,
+        )
 
         # Reset per-sample mu_P_calc / mu_X_calc accumulators
         self.y_curr[31] = 0.0
@@ -361,10 +371,31 @@ class _SimulationRun:
                 "Viscosity": self.history.y("Viscosity", j),
             }
 
+        phase: str | None = None
+        phase_state: str | None = None
+        phase_transitions: list[dict] | None = None
+        if self.recipe_exec is not None:
+            phase = self.recipe_exec.current_phase.name
+            phase_state = self.recipe_exec.phase_state.value
+            drained = self.recipe_exec.drain_new_transitions()
+            if drained:
+                phase_transitions = [
+                    {
+                        "from_phase": t.from_phase,
+                        "to_phase": t.to_phase,
+                        "at_k": t.at_k,
+                        "at_time_h": t.at_time_h,
+                        "reason": t.reason,
+                    }
+                    for t in drained
+                ]
+
         return Sample(
             k=k, sim_time_h=float(self.t_grid[k]), wall_time_s=None,
             state=state, controls=controls,
             raman=raman_sample, offline=offline,
+            phase=phase, phase_state=phase_state,
+            phase_transitions=phase_transitions,
         )
 
     # ------------------------------------------------------------------

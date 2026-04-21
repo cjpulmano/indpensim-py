@@ -35,6 +35,7 @@ from indpensim.io.initial_conditions import (
     CapturedBatch, ControlFlags, DisturbanceTrajectories, InitialConditions,
     load_captured_batch,
 )
+from indpensim.recipe.types import Recipe
 from indpensim.simulation import SimulationResult, simulate
 
 
@@ -66,6 +67,9 @@ class BatchConfig:
     prbs: int = 0                          # 0=SBC recipe, 1=PRBS noise
     fixed_length: bool = True              # False → length varies by 25*randn
     raman_spec: int = 0                    # 0=none, 1=record, 2=close PAA loop
+    # Optional recipe. When None, the controller uses the hardcoded SBC
+    # tables. When present, the recipe drives all 7 feed setpoints.
+    recipe: Recipe | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +168,7 @@ def batch_spec_from_python_rng(
     return CapturedBatch(
         initial_conditions=ic, disturbances=dist, control_flags=flags,
         h=campaign.h, T=T, Random_seed_ref=0, Seed_ref=0,
+        recipe=batch.recipe,
     )
 
 

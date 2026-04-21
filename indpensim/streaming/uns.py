@@ -18,8 +18,12 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from indpensim.streaming.sample import Sample
+
+if TYPE_CHECKING:
+    from indpensim.recipe.types import Recipe
 
 
 # ---------------------------------------------------------------------------
@@ -170,10 +174,18 @@ def build_state_message(sample: Sample, cfg: UnsConfig,
                          phase: str = "FERMENT",
                          batch_id: int | None = None,
                          elapsed_h: float | None = None,
+                         phase_state: str | None = None,
                          ) -> tuple[str, bytes]:
-    """Build the unit-state heartbeat (matches learning-sim's _state schema)."""
+    """Build the unit-state heartbeat (matches learning-sim's _state schema).
+
+    If the sample carries ``phase`` or ``phase_state`` (recipe-driven run),
+    those take precedence over the positional defaults.
+    """
+    resolved_phase = sample.phase or phase
+    resolved_phase_state = sample.phase_state or phase_state or "RUNNING"
     payload = {
-        "phase": phase,
+        "phase": resolved_phase,
+        "phase_state": resolved_phase_state,
         "batch_id": batch_id,
         "elapsed_h": elapsed_h if elapsed_h is not None else sample.sim_time_h,
         "k": sample.k,
@@ -194,3 +206,50 @@ def build_phase_start_message(cfg: UnsConfig, *, phase: str, batch_id: int,
         "ts": _now_iso(),
     }
     return cfg.topic("_phase_start"), json.dumps(payload).encode("utf-8")
+
+
+def build_phase_transitions(
+    sample: Sample,
+    cfg: UnsConfig,
+    batch_id: int,
+) -> list[tuple[str, bytes]]:
+    """Emit one _phase_start message per transition that fired at this sample.
+
+    ``sample.phase_transitions`` is populated by the simulation step when
+    a recipe is attached; it's empty on most samples. A ``to_phase`` of
+    ``None`` (last phase completed) is surfaced as ``"__COMPLETE__"`` so
+    downstream consumers still see a distinct terminal event.
+    """
+    if not sample.phase_transitions:
+        return []
+    out: list[tuple[str, bytes]] = []
+    for t in sample.phase_transitions:
+        target = t["to_phase"] if t["to_phase"] is not None else "__COMPLETE__"
+        payload = {
+            "phase": target,
+            "from_phase": t["from_phase"],
+            "batch_id": batch_id,
+            "reason": t["reason"],
+            "k": t["at_k"],
+            "sim_time_h": t["at_time_h"],
+            "ts": _now_iso(),
+        }
+        out.append((cfg.topic("_phase_start"),
+                    json.dumps(payload).encode("utf-8")))
+    return out
+
+
+def build_batch_start_message(
+    recipe: "Recipe | None",
+    cfg: UnsConfig,
+    batch_id: int,
+) -> tuple[str, bytes]:
+    """Emit once per batch at stream start. Recipe metadata when present."""
+    payload: dict = {
+        "batch_id": batch_id,
+        "ts": _now_iso(),
+    }
+    if recipe is not None:
+        payload["recipe_name"] = recipe.name
+        payload["phases"] = [p.name for p in recipe.phases]
+    return cfg.topic("_batch_start"), json.dumps(payload).encode("utf-8")

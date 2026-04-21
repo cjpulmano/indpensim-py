@@ -47,7 +47,8 @@ from indpensim.simulation import simulate_iter
 from indpensim.streaming.pacing import paced, parse_pace_spec
 from indpensim.streaming.sample import StreamConfig
 from indpensim.streaming.uns import (
-    UnsConfig, build_messages, build_phase_start_message, build_state_message,
+    UnsConfig, build_batch_start_message, build_messages,
+    build_phase_start_message, build_phase_transitions, build_state_message,
 )
 
 
@@ -151,10 +152,19 @@ def main(argv: list[str] | None = None) -> int:
     client = _make_client(args.broker, args.port)
     log.info("publishing under uns/%s/%s/%s/%s/...", args.site, args.area, args.line, args.equipment)
 
-    # ---- Phase event: start of FERMENT
-    topic, payload = build_phase_start_message(uns_cfg, phase="FERMENT",
-                                                batch_id=args.batch_id, phase_index=0)
+    # ---- Batch-start event (recipe metadata when attached)
+    topic, payload = build_batch_start_message(spec.recipe, uns_cfg,
+                                                batch_id=args.batch_id)
     client.publish(topic, payload, qos=1)
+
+    # For legacy (no recipe) runs, keep the old FERMENT phase-start event
+    # so downstream consumers that expect one still see it. Recipe runs
+    # get real transitions emitted per-sample instead.
+    if spec.recipe is None:
+        topic, payload = build_phase_start_message(uns_cfg, phase="FERMENT",
+                                                    batch_id=args.batch_id,
+                                                    phase_index=0)
+        client.publish(topic, payload, qos=1)
 
     # ---- Stream
     stop_requested = False
@@ -180,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
                 sample, uns_cfg, phase="FERMENT", batch_id=args.batch_id,
             )
             msgs.append((state_topic, state_payload))
+            # Recipe-driven runs: fire any transitions that happened at this sample.
+            msgs.extend(build_phase_transitions(sample, uns_cfg,
+                                                 batch_id=args.batch_id))
             _publish_messages(client, msgs, qos=args.qos)
             samples_emitted += 1
             bytes_published += sum(len(p) for _, p in msgs)
@@ -188,10 +201,13 @@ def main(argv: list[str] | None = None) -> int:
                          sample.k, sample.sim_time_h, sample.wall_time_s or 0.0,
                          samples_emitted, samples_emitted)
 
-        # ---- Phase event: end of FERMENT
-        topic, payload = build_phase_start_message(uns_cfg, phase="HARVEST",
-                                                    batch_id=args.batch_id, phase_index=1)
-        client.publish(topic, payload, qos=1)
+        # ---- Phase event: end of batch (legacy path only; recipe runs
+        # emit their terminal __COMPLETE__ via build_phase_transitions).
+        if spec.recipe is None:
+            topic, payload = build_phase_start_message(uns_cfg, phase="HARVEST",
+                                                        batch_id=args.batch_id,
+                                                        phase_index=1)
+            client.publish(topic, payload, qos=1)
 
     finally:
         log.info("disconnecting (%d samples, %.1f KB published)",

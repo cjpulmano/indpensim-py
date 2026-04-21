@@ -30,6 +30,15 @@ class Sample:
     controls: dict[str, float]         # 12 manipulated variables
     raman: Optional[list[float]] = None
     offline: Optional[dict[str, float]] = None
+    # Recipe-driven runs populate these from the active phase; legacy
+    # (recipe=None) runs leave them None and the state heartbeat falls
+    # back to its static default.
+    phase: Optional[str] = None
+    phase_state: Optional[str] = None
+    # Transitions that fired at this sample (empty on most samples; one
+    # or more entries on a transition boundary). Kept as plain dicts so
+    # the streaming layer has no dependency on recipe module types.
+    phase_transitions: Optional[list[dict]] = None
 
 
 @dataclass(frozen=True)

@@ -17,6 +17,11 @@ three channels where closed-loop solver amplification leaves wider bounds).
 - Streaming layer — iterator API (`simulate_iter()`) plus an MQTT runner
   that publishes each timestep to a UNS-shaped topic tree; pacing is
   configurable from as-fast-as-possible down to true real-time
+- Optional ISA-88-subset **Recipe layer** — author phase-structured
+  batches (INOCULATE → GROWTH → PRODUCTION → HARVEST) with hybrid
+  time/state transition triggers; phase context flows into the MQTT
+  stream as `_phase_start` events. The legacy hardcoded SBC tables
+  remain the default; attach a Recipe explicitly to opt in.
 
 ## Upstream / original
 
@@ -116,6 +121,38 @@ for sample in paced(simulate_iter(spec), Pacing.fixed_interval(2.0)):
     print(sample.sim_time_h, sample.state["P"], sample.state["T"])
 ```
 
+### Recipe layer (optional)
+
+Authoring a phase-structured batch via the ISA-88-subset Recipe API:
+
+```python
+from indpensim.driver import BatchConfig, CampaignConfig, batch_spec_from_python_rng
+from indpensim.recipe import legacy_sbc_recipe
+from indpensim.simulation import simulate
+import numpy as np
+
+rng = np.random.default_rng(42)
+spec = batch_spec_from_python_rng(
+    rng, batch_no=1,
+    campaign=CampaignConfig(),
+    batch=BatchConfig(recipe=legacy_sbc_recipe()),
+)
+result = simulate(spec)
+```
+
+`legacy_sbc_recipe()` is a 4-phase Recipe (INOCULATE / GROWTH /
+PRODUCTION / HARVEST) that reconstitutes the hardcoded SBC tables
+bit-for-bit — the regression anchor for any custom Recipe. Build your
+own with `Phase`, `SetpointProfile`, and `TransitionTrigger`
+(time-in-phase, state threshold, or both — whichever fires first
+advances). Recipes round-trip through JSON via `recipe.to_dict` /
+`recipe.from_dict`.
+
+When a Recipe is attached, each streaming `Sample` carries `phase`,
+`phase_state`, and `phase_transitions`; the MQTT runner publishes a
+`_batch_start` message with recipe metadata once per batch and emits
+`_phase_start` messages as transitions fire.
+
 ## Layout
 
 ```
@@ -139,6 +176,11 @@ indpensim/
     pacing.py         - fast | fixed_interval | accelerated pacers
     uns.py            - UNS topic builder + tag/unit conversion
     mqtt_runner.py    - paho-mqtt publisher + CLI
+  recipe/
+    types.py          - Phase/Recipe/SetpointProfile/TransitionTrigger
+    executor.py       - stateful RecipeExecutor (transitions, phase log)
+    legacy.py         - legacy_sbc_recipe() — regression anchor
+    io.py             - JSON round-trip
   validation/
     playback.py       - replay a captured batch with MATLAB inputs
 docs/
@@ -148,8 +190,8 @@ docs/
   matlab_reference_capture.md  - how to capture MATLAB reference data
 scripts/
   matlab_*.m          - MATLAB capture scripts
-tests/                - 542 tests (states, controller, ODE, PLS, streaming,
-                        multi-seed validation, end-to-end)
+tests/                - 643 tests (states, controller, ODE, PLS, streaming,
+                        multi-seed validation, end-to-end, recipe parity)
 ```
 
 ## Validation

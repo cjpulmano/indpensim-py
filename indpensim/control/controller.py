@@ -32,12 +32,16 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from indpensim.control.history import BatchHistory, IndustrialData
 from indpensim.control.pid import pid_step
 from indpensim.io.initial_conditions import ControlFlags
+
+if TYPE_CHECKING:
+    from indpensim.recipe.executor import RecipeExecutor
 
 
 # Sequential Batch Control recipes — verbatim from fctrl_indpensim.m:178-289.
@@ -129,6 +133,7 @@ def controller_step(
     ctrl_flags: ControlFlags,
     *,
     rng: np.random.Generator | None = None,
+    recipe_exec: "RecipeExecutor | None" = None,
 ) -> ControllerOutputs:
     """Compute manipulated variables for one MATLAB sample ``k`` (1-based).
 
@@ -267,6 +272,9 @@ def controller_step(
 
     # ============================== Sequential Batch Control =================
     # Captured batch uses SBC=0; SBC=1 path is a thin pass-through of Xd.
+    # Note: ``recipe_exec`` is silently ignored on the SBC=1 branch.
+    # Hypothetical for now — no captured configs use SBC=1 — but worth
+    # revisiting if a real industrial-data path lands here.
     if ctrl_flags.SBC == 1:
         Foil       = Xd.NH3_shots(k)        # placeholder — IndustrialData stub
         F_discharge = 0.0
@@ -277,9 +285,25 @@ def controller_step(
         Fg         = 0.0
         Fs         = 0.0
     else:
-        # SBC=0 — recipe-driven setpoints
+        # SBC=0 — recipe-driven setpoints.
+        # When ``recipe_exec`` is supplied, it resolves all 7 feed
+        # setpoints from the active Phase's SetpointProfile (same
+        # first-match semantics as _recipe_lookup). Otherwise the
+        # hardcoded _RECIPE_* tables are used as before. The PRBS and
+        # fault branches below read history[k-1] and are unchanged —
+        # history is populated identically by either path.
         viscosity = 4.0
-        Fs = _recipe_lookup(k, _RECIPE_FS_K, _RECIPE_FS_SP)
+        if recipe_exec is not None:
+            _rs = recipe_exec.step(k, history)
+            Fs          = _rs.Fs
+            Foil        = _rs.Foil
+            Fg          = _rs.Fg
+            pressure    = _rs.pressure
+            F_discharge = -_rs.Fdischarge
+            Fw          = _rs.Fwater
+            Fpaa        = _rs.Fpaa
+        else:
+            Fs = _recipe_lookup(k, _RECIPE_FS_K, _RECIPE_FS_SP)
 
         # Add PRBS to Fs (lines 193-216)
         if ctrl_flags.PRBS == 1:
@@ -305,12 +329,13 @@ def controller_step(
         else:
             history.set("PRBS_noise_addition", k, 0.0)
 
-        Foil        = _recipe_lookup(k, _RECIPE_FOIL_K, _RECIPE_FOIL_SP)
-        Fg          = _recipe_lookup(k, _RECIPE_FG_K, _RECIPE_FG_SP)
-        pressure    = _recipe_lookup(k, _RECIPE_PRES_K, _RECIPE_PRES_SP)
-        F_discharge = -_recipe_lookup(k, _RECIPE_DISCH_K, _RECIPE_DISCH_SP)
-        Fw          = _recipe_lookup(k, _RECIPE_WATER_K, _RECIPE_WATER_SP)
-        Fpaa        = _recipe_lookup(k, _RECIPE_PAA_K, _RECIPE_PAA_SP)
+        if recipe_exec is None:
+            Foil        = _recipe_lookup(k, _RECIPE_FOIL_K, _RECIPE_FOIL_SP)
+            Fg          = _recipe_lookup(k, _RECIPE_FG_K, _RECIPE_FG_SP)
+            pressure    = _recipe_lookup(k, _RECIPE_PRES_K, _RECIPE_PRES_SP)
+            F_discharge = -_recipe_lookup(k, _RECIPE_DISCH_K, _RECIPE_DISCH_SP)
+            Fw          = _recipe_lookup(k, _RECIPE_WATER_K, _RECIPE_WATER_SP)
+            Fpaa        = _recipe_lookup(k, _RECIPE_PAA_K, _RECIPE_PAA_SP)
 
         if ctrl_flags.PRBS == 1:
             if k > 500 and k % 100 == 0:
