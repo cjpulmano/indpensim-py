@@ -14,6 +14,9 @@ three channels where closed-loop solver amplification leaves wider bounds).
   fault injection, PRBS noise
 - Simulated Raman spectroscopy + PLS-based PAA concentration prediction
 - Multi-batch campaign driver with CLI and CSV outputs
+- Streaming layer — iterator API (`simulate_iter()`) plus an MQTT runner
+  that publishes each timestep to a UNS-shaped topic tree; pacing is
+  configurable from as-fast-as-possible down to true real-time
 
 ## Upstream / original
 
@@ -35,6 +38,19 @@ uv pip install -e .
 ```
 
 (Or use `pip install -e .` if you don't have uv.)
+
+For the MQTT streaming runner, install the optional extra:
+
+```bash
+uv pip install -e '.[mqtt]'
+```
+
+For running tests or other contributor work, install the dev extra (pulls
+in pytest and matplotlib):
+
+```bash
+uv pip install -e '.[dev]'
+```
 
 ## Run
 
@@ -65,6 +81,41 @@ result = simulate(spec)
 print(result.history.channels["P"][-1])     # final penicillin g/L
 ```
 
+### Streaming to MQTT
+
+Stream a live batch to an MQTT broker (default pacing: one sample every
+2 wall-seconds, ~360× real-time, matching a 2s SCADA scan rate):
+
+```bash
+python -m indpensim.streaming.mqtt_runner --broker localhost
+```
+
+Pacing options via `--pace`:
+
+| Spec | Behavior |
+|---|---|
+| `fast` | No sleep; full 230h batch streams in ~25s wall time. For backfilling ML training data. |
+| `fixed:<seconds>` | One sample every N wall-seconds regardless of sim h. Default `fixed:2.0`. |
+| `accelerated:<factor>` | Wall ≈ sim_h · 3600 / factor. `factor=1` is true real-time (12 min per sample); `factor=360` ≈ `fixed:2.0`. |
+
+Other useful flags: `--raman-every N` / `--lab-every N` control cadence
+of the two slow channels independently of the state stream; `--faults
+0..8` and `--raman-spec 0..2` configure the batch; `--from-capture
+--capture-seed 42` streams from a captured MATLAB init instead of a
+fresh Python RNG draw. Topic tree follows the UNS convention
+`uns/{site}/{area}/{line}/{equipment}/{tag}` — equipment defaults to
+`bioreactor-real`.
+
+From Python (for custom sinks, no MQTT dependency):
+
+```python
+from indpensim.simulation import simulate_iter
+from indpensim.streaming.pacing import Pacing, paced
+
+for sample in paced(simulate_iter(spec), Pacing.fixed_interval(2.0)):
+    print(sample.sim_time_h, sample.state["P"], sample.state["T"])
+```
+
 ## Layout
 
 ```
@@ -83,6 +134,11 @@ indpensim/
   io/
     parameters.py     - 105-element parameter vector
     initial_conditions.py  - loader for MATLAB-captured initial conditions
+  streaming/
+    sample.py         - Sample dataclass + StreamConfig (raman/lab cadence)
+    pacing.py         - fast | fixed_interval | accelerated pacers
+    uns.py            - UNS topic builder + tag/unit conversion
+    mqtt_runner.py    - paho-mqtt publisher + CLI
   validation/
     playback.py       - replay a captured batch with MATLAB inputs
 docs/
@@ -92,7 +148,8 @@ docs/
   matlab_reference_capture.md  - how to capture MATLAB reference data
 scripts/
   matlab_*.m          - MATLAB capture scripts
-tests/                - 136 tests (states, controller, ODE, PLS, end-to-end)
+tests/                - 542 tests (states, controller, ODE, PLS, streaming,
+                        multi-seed validation, end-to-end)
 ```
 
 ## Validation
