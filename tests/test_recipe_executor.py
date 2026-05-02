@@ -268,6 +268,41 @@ def test_executor_state_based_advance():
     assert out.Fs == 2.0
 
 
+def test_resolved_setpoints_default_t_ph_to_none():
+    """Phases without per-phase overrides yield None (controller falls back)."""
+    ex = RecipeExecutor(recipe=_two_phase_time_recipe(), h=0.2)
+    out = ex.step(1, _empty_history())
+    assert out.T_sp is None
+    assert out.pH_sp is None
+
+
+def test_resolved_setpoints_carry_per_phase_t_ph_overrides():
+    recipe = _make_recipe([
+        Phase(
+            name="WARM",
+            setpoints=SetpointProfile(T_sp=300.15, pH_sp=6.5),
+            transition=TransitionTrigger(max_hours=1.0),
+        ),
+        Phase(
+            name="HOT",
+            setpoints=SetpointProfile(T_sp=302.15, pH_sp=6.3),
+            transition=TransitionTrigger(max_hours=10.0),
+        ),
+    ])
+    ex = RecipeExecutor(recipe=recipe, h=0.2)
+    h = _empty_history()
+    out1 = ex.step(1, h)
+    assert out1.T_sp == 300.15
+    assert out1.pH_sp == 6.5
+    # Advance to phase 2 — overrides switch to its values.
+    for k in range(2, 7):
+        ex.step(k, h)
+    out2 = ex.step(7, h)
+    assert ex.current_phase.name == "HOT"
+    assert out2.T_sp == 302.15
+    assert out2.pH_sp == 6.3
+
+
 def test_executor_mutator_hooks_raise():
     ex = RecipeExecutor(recipe=_two_phase_time_recipe(), h=0.2)
     with pytest.raises(NotImplementedError):

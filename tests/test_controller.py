@@ -132,3 +132,125 @@ def test_controller_output_matches_matlab(replay_outputs, states_df, col, atol, 
         raise AssertionError(
             f"{col}: {n_bad}/{len(py)} samples diverge.\n" + "\n".join(msgs)
         )
+
+
+# ---------------------------------------------------------------------------
+# Per-phase T_sp / pH_sp override (synthetic, no MATLAB reference required)
+# ---------------------------------------------------------------------------
+
+def _flags_with(*, T_sp: float, pH_sp: float, faults: int = 0):
+    from indpensim.io.initial_conditions import ControlFlags
+    return ControlFlags(
+        SBC=0, PRBS=0, Fixed_Batch_length=1, IC=0, Inhib=0, Dis=0,
+        Faults=faults, Vis=0, Raman_spec=0, Batch_Num=1,
+        T_sp=T_sp, pH_sp=pH_sp, Off_line_m=0, Off_line_delay=0,
+    )
+
+
+def _seed_history(history, *, pH_value: float, T_value: float):
+    """Pre-fill enough samples for the controller's k=2 reads."""
+    h_plus = 10.0 ** (-pH_value)
+    for k in (1, 2):
+        history.set("pH", k, h_plus)
+        history.set("T", k, T_value)
+        history.set("PAA", k, 0.0)
+
+
+def _single_phase_recipe(*, T_sp: float | None, pH_sp: float | None):
+    from indpensim.recipe.types import (
+        Phase, Recipe, SetpointProfile, TransitionTrigger,
+    )
+    return Recipe(name="ovrd", phases=(
+        Phase(
+            name="ONLY",
+            setpoints=SetpointProfile(
+                Fs=((1750.0, 8.0),), Foil=((1750.0, 22.0),),
+                Fg=((1750.0, 30.0),), pressure=((1750.0, 0.6),),
+                Fwater=((1750.0, 0.0),), Fdischarge=((1750.0, 0.0),),
+                Fpaa=((1750.0, 5.0),),
+                T_sp=T_sp, pH_sp=pH_sp,
+            ),
+            transition=TransitionTrigger(max_hours=999.0),
+        ),
+    ))
+
+
+def test_per_phase_ph_override_flips_pid_branch():
+    """pH_sp override should swap acid/base branch vs ctrl_flags default."""
+    from indpensim.control.controller import controller_step
+    from indpensim.control.history import BatchHistory, IndustrialData
+    from indpensim.recipe.executor import RecipeExecutor
+
+    # Process pH = 6.5. ctrl_flags.pH_sp = 5.0 → ph_err = -1.5 → acid
+    # branch, Fb = 0. Override to 7.0 → ph_err = 0.5 → base branch,
+    # Fb saturates to ~200. Same history, same call site — only the
+    # override flipped.
+    flags = _flags_with(T_sp=298.0, pH_sp=5.0)
+    Xd = IndustrialData()
+
+    # No override — acid branch, Fb stays zero.
+    h1 = BatchHistory.empty(10)
+    _seed_history(h1, pH_value=6.5, T_value=298.0)
+    ex_no = RecipeExecutor(recipe=_single_phase_recipe(T_sp=None, pH_sp=None), h=0.2)
+    u_no = controller_step(h1, Xd, k=2, h=0.2, T=230, ctrl_flags=flags, recipe_exec=ex_no)
+    assert u_no.Fb == 0.0
+
+    # Override pH_sp=7.0 — base branch, Fb goes to large positive value.
+    h2 = BatchHistory.empty(10)
+    _seed_history(h2, pH_value=6.5, T_value=298.0)
+    ex_ovr = RecipeExecutor(recipe=_single_phase_recipe(T_sp=None, pH_sp=7.0), h=0.2)
+    u_ovr = controller_step(h2, Xd, k=2, h=0.2, T=230, ctrl_flags=flags, recipe_exec=ex_ovr)
+    assert u_ovr.Fa == 0.0
+    assert u_ovr.Fb > 100.0
+
+
+def test_per_phase_t_override_flips_heat_cool_branch():
+    """T_sp override should swap heat/cool branch vs ctrl_flags default."""
+    from indpensim.control.controller import controller_step
+    from indpensim.control.history import BatchHistory, IndustrialData
+    from indpensim.recipe.executor import RecipeExecutor
+
+    # Process T = 298 K. ctrl_flags.T_sp = 290 → temp_err = -8 → cooling
+    # (Fc>0, Fh~0). Override to 310 K → temp_err = 12 → heating.
+    flags = _flags_with(T_sp=290.0, pH_sp=6.5)
+    Xd = IndustrialData()
+
+    h1 = BatchHistory.empty(10)
+    _seed_history(h1, pH_value=6.5, T_value=298.0)
+    ex_no = RecipeExecutor(recipe=_single_phase_recipe(T_sp=None, pH_sp=None), h=0.2)
+    u_no = controller_step(h1, Xd, k=2, h=0.2, T=230, ctrl_flags=flags, recipe_exec=ex_no)
+    assert u_no.Fc > 0.0  # cooling
+
+    h2 = BatchHistory.empty(10)
+    _seed_history(h2, pH_value=6.5, T_value=298.0)
+    ex_ovr = RecipeExecutor(recipe=_single_phase_recipe(T_sp=310.0, pH_sp=None), h=0.2)
+    u_ovr = controller_step(h2, Xd, k=2, h=0.2, T=230, ctrl_flags=flags, recipe_exec=ex_ovr)
+    assert u_ovr.Fh > u_no.Fh  # heating fired
+
+
+def test_no_override_falls_back_to_ctrl_flags():
+    """When per-phase T_sp/pH_sp are None, ctrl_flags values are used unchanged."""
+    from indpensim.control.controller import controller_step
+    from indpensim.control.history import BatchHistory, IndustrialData
+    from indpensim.recipe.executor import RecipeExecutor
+
+    flags = _flags_with(T_sp=298.0, pH_sp=6.5)
+    Xd = IndustrialData()
+
+    # No-recipe baseline
+    h1 = BatchHistory.empty(10)
+    _seed_history(h1, pH_value=6.5, T_value=298.0)
+    u_baseline = controller_step(h1, Xd, k=2, h=0.2, T=230, ctrl_flags=flags)
+
+    # Recipe with all-None overrides — must match exactly.
+    h2 = BatchHistory.empty(10)
+    _seed_history(h2, pH_value=6.5, T_value=298.0)
+    ex = RecipeExecutor(recipe=_single_phase_recipe(T_sp=None, pH_sp=None), h=0.2)
+    u_rec = controller_step(h2, Xd, k=2, h=0.2, T=230, ctrl_flags=flags, recipe_exec=ex)
+
+    # PID outputs identical when overrides are None (recipe still drives feeds,
+    # but T_sp / pH_sp paths take the ctrl_flags branch).
+    assert u_rec.Fa == u_baseline.Fa
+    assert u_rec.Fb == u_baseline.Fb
+    assert u_rec.Fc == u_baseline.Fc
+    assert u_rec.Fh == u_baseline.Fh

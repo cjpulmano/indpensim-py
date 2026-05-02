@@ -17,11 +17,14 @@ import pandas as pd
 import streamlit as st
 
 from indpensim.recipe import from_dict
+from indpensim.ui.glossary import render_glossary_expander
 from indpensim.ui.rendering import build_recipe_timeline_figure, phase_summary_rows
+from indpensim.ui.sfc import build_sfc_dot, sfc_state_from_active
 from indpensim.ui.state import current_recipe, init_session
 
 st.set_page_config(page_title="Visualize | indpensim", layout="wide")
 init_session()
+render_glossary_expander()
 
 st.title("Recipe visualization")
 
@@ -52,18 +55,80 @@ if recipe is None:
 
 st.subheader(f"Recipe: {recipe.name}")
 
-h = st.number_input(
-    "Sample period h (hours)",
-    value=0.2, min_value=0.01, step=0.05,
-    help="Used to compute phase boundaries from time-in-phase triggers. "
-         "0.2h matches the simulator default.",
+tab_sfc, tab_timeline, tab_summary = st.tabs(
+    ["SFC", "Setpoint timeline", "Phase summary"]
 )
 
-fig = build_recipe_timeline_figure(recipe, h=h)
-st.plotly_chart(fig, use_container_width=True)
+with tab_sfc:
+    st.caption(
+        "Sequential Function Chart. Steps (boxes) run top-to-bottom, "
+        "separated by transitions (dark pills) whose condition must be "
+        "true to advance."
+    )
+    mode = st.radio(
+        "View mode",
+        options=("Config", "Execution preview"),
+        horizontal=True,
+        help="Config is the static chart. Execution preview simulates "
+             "which step is active — prior steps flip to completed.",
+    )
+    active_phase = None
+    completed: tuple[str, ...] = ()
+    held_phase: str | None = None
+    aborted_phase: str | None = None
 
-st.divider()
+    if mode == "Execution preview":
+        col_a, col_b = st.columns([2, 1])
+        with col_a:
+            phase_names = [p.name for p in recipe.phases]
+            active_choice = st.selectbox(
+                "Active phase", options=phase_names, index=0,
+                help="The SFC will show this phase as RUNNING, prior "
+                     "phases as COMPLETE, later phases as pending.",
+            )
+        with col_b:
+            exec_state = st.selectbox(
+                "Phase state",
+                options=("RUNNING", "HELD", "ABORTED"),
+                index=0,
+            )
+        completed, active = sfc_state_from_active(recipe, active_choice)
+        if exec_state == "RUNNING":
+            active_phase = active
+        elif exec_state == "HELD":
+            held_phase = active
+        elif exec_state == "ABORTED":
+            aborted_phase = active
 
-st.subheader("Phase summary")
-rows = phase_summary_rows(recipe, h=h)
-st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    dot = build_sfc_dot(
+        recipe,
+        active_phase=active_phase,
+        completed_phases=completed,
+        held_phase=held_phase,
+        aborted_phase=aborted_phase,
+    )
+    st.graphviz_chart(dot, use_container_width=True)
+
+    # Legend
+    st.caption(
+        "Legend: "
+        ":green[■] active (RUNNING) · "
+        "■ completed · "
+        ":orange[■] held · "
+        ":red[■] aborted · "
+        ":violet[■] pending"
+    )
+
+with tab_timeline:
+    h = st.number_input(
+        "Sample period h (hours)",
+        value=0.2, min_value=0.01, step=0.05,
+        help="Used to compute phase boundaries from time-in-phase triggers. "
+             "0.2h matches the simulator default.",
+    )
+    fig = build_recipe_timeline_figure(recipe, h=h)
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab_summary:
+    rows = phase_summary_rows(recipe, h=0.2)
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)

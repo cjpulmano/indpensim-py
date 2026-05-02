@@ -21,6 +21,7 @@ from indpensim.ui.state import (
     rows_to_schedule,
     schedule_to_rows,
 )
+from indpensim.ui.units import c_to_k, k_to_c
 
 
 _STATE_VAR_OPTIONS = (
@@ -111,16 +112,20 @@ def phase_editor(phase: dict[str, Any], idx: int) -> dict[str, Any]:
                 key=f"phase_{idx}_sp_{channel}",
             )
 
-    with st.expander("Per-phase T_sp / pH_sp overrides (advanced — not yet wired)"):
+    with st.expander("Per-phase T_sp / pH_sp overrides (advanced)"):
         st.caption(
-            "These fields round-trip through JSON and the Recipe object, "
-            "but the controller does not yet read them. Setting them has "
-            "no runtime effect until the controller is updated."
+            "When set, these override `ControlFlags.T_sp` / `pH_sp` "
+            "for every sample the phase is active; leave at 0 "
+            "(displayed as None on the JSON side) to fall back to the "
+            "campaign-level setpoint. Temperature is stored in Kelvin "
+            "internally but edited here in Celsius."
         )
         col_t, col_ph = st.columns(2)
-        t_sp_in = col_t.number_input(
-            "T_sp (K) — leave 0 for None",
-            value=float(phase["setpoints"].get("T_sp") or 0.0),
+        stored_k = phase["setpoints"].get("T_sp")
+        displayed_c = k_to_c(stored_k) if stored_k is not None else 0.0
+        t_sp_c_in = col_t.number_input(
+            "T_sp (°C) — leave 0 for None",
+            value=float(displayed_c),
             step=0.5, key=f"phase_{idx}_T_sp",
         )
         ph_sp_in = col_ph.number_input(
@@ -128,7 +133,7 @@ def phase_editor(phase: dict[str, Any], idx: int) -> dict[str, Any]:
             value=float(phase["setpoints"].get("pH_sp") or 0.0),
             step=0.1, key=f"phase_{idx}_pH_sp",
         )
-        new_setpoints["T_sp"] = t_sp_in if t_sp_in > 0 else None
+        new_setpoints["T_sp"] = c_to_k(t_sp_c_in) if t_sp_c_in != 0 else None
         new_setpoints["pH_sp"] = ph_sp_in if ph_sp_in > 0 else None
 
     return {

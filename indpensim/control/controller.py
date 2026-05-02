@@ -149,12 +149,23 @@ def controller_step(
     """
     Faults = ctrl_flags.Faults
 
+    # Recipe executor runs first (when supplied and SBC=0) so per-phase
+    # T_sp / pH_sp overrides are visible to the pH and temperature PIDs
+    # below. Phase advances driven by time-in-phase trigger here; later
+    # SBC code reads the resolved feeds off `_rs`. SBC=1 keeps the
+    # legacy pass-through and ignores `recipe_exec` entirely.
+    _rs = (
+        recipe_exec.step(k, history)
+        if (recipe_exec is not None and ctrl_flags.SBC == 0)
+        else None
+    )
+
     # ============================== pH controller ============================
     pH_sensor_error = 0.0
     if Faults == 8:
         pH_sensor_error = _ramp_fault_value(k, 0.1)
 
-    pH_sp = ctrl_flags.pH_sp
+    pH_sp = ctrl_flags.pH_sp if (_rs is None or _rs.pH_sp is None) else _rs.pH_sp
     # Error history (fctrl lines 40-46). Note line 45 is a *typo* in MATLAB
     # — ph_err1 is missing the (pH_sp -) term. Faithful port:
     if k == 1 or k == 2:
@@ -219,7 +230,7 @@ def controller_step(
     if Faults == 7:
         T_sensor_error = _ramp_fault_value(k, 0.4)
 
-    T_sp = ctrl_flags.T_sp
+    T_sp = ctrl_flags.T_sp if (_rs is None or _rs.T_sp is None) else _rs.T_sp
     if k == 1 or k == 2:
         temp_err  = T_sp - history.y("T", 1) + T_sensor_error
         temp_err1 = T_sp - history.y("T", 1) + T_sensor_error
@@ -286,15 +297,15 @@ def controller_step(
         Fs         = 0.0
     else:
         # SBC=0 — recipe-driven setpoints.
-        # When ``recipe_exec`` is supplied, it resolves all 7 feed
-        # setpoints from the active Phase's SetpointProfile (same
-        # first-match semantics as _recipe_lookup). Otherwise the
-        # hardcoded _RECIPE_* tables are used as before. The PRBS and
-        # fault branches below read history[k-1] and are unchanged —
-        # history is populated identically by either path.
+        # When ``recipe_exec`` is supplied, ``_rs`` (resolved at the top
+        # of this function) carries all 7 feed setpoints from the active
+        # Phase's SetpointProfile (same first-match semantics as
+        # _recipe_lookup). Otherwise the hardcoded _RECIPE_* tables are
+        # used as before. The PRBS and fault branches below read
+        # history[k-1] and are unchanged — history is populated
+        # identically by either path.
         viscosity = 4.0
-        if recipe_exec is not None:
-            _rs = recipe_exec.step(k, history)
+        if _rs is not None:
             Fs          = _rs.Fs
             Foil        = _rs.Foil
             Fg          = _rs.Fg
@@ -329,7 +340,7 @@ def controller_step(
         else:
             history.set("PRBS_noise_addition", k, 0.0)
 
-        if recipe_exec is None:
+        if _rs is None:
             Foil        = _recipe_lookup(k, _RECIPE_FOIL_K, _RECIPE_FOIL_SP)
             Fg          = _recipe_lookup(k, _RECIPE_FG_K, _RECIPE_FG_SP)
             pressure    = _recipe_lookup(k, _RECIPE_PRES_K, _RECIPE_PRES_SP)

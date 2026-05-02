@@ -30,6 +30,11 @@ from indpensim.ui.rendering import (                  # noqa: E402
     build_recipe_timeline_figure,
     phase_summary_rows,
 )
+from indpensim.ui.sfc import (                         # noqa: E402
+    build_sfc_dot,
+    sfc_state_from_active,
+)
+from indpensim.ui.units import c_to_k, format_temp_c, k_to_c   # noqa: E402
 from indpensim.ui.state import (                      # noqa: E402
     SETPOINT_CHANNELS,
     empty_phase,
@@ -148,6 +153,119 @@ def test_phase_summary_handles_state_only_trigger():
     rows = phase_summary_rows(recipe, h=0.2)
     assert "state-trigger" in rows[0]["Duration"]
     assert "X>=" in rows[0]["Trigger"]
+
+
+# ---------------------------------------------------------------------------
+# sfc.py — SFC DOT builder
+# ---------------------------------------------------------------------------
+
+def test_sfc_dot_config_view_for_legacy_recipe():
+    dot = build_sfc_dot(legacy_sbc_recipe())
+    # Structural sanity
+    assert dot.startswith("digraph SFC")
+    assert dot.rstrip().endswith("}")
+    # All phase names appear as labels.
+    for name in ("INOCULATE", "GROWTH", "PRODUCTION", "HARVEST"):
+        assert name in dot
+    # Initial/final bars present.
+    assert "_start" in dot
+    assert "_end" in dot
+    # One transition pill per phase.
+    assert dot.count("t0 [") == 1
+    assert dot.count("t1 [") == 1
+    assert dot.count("t2 [") == 1
+    assert dot.count("t3 [") == 1
+
+
+def test_sfc_dot_config_has_no_active_highlight():
+    """Pure config view: no phase should be colored with the active-green."""
+    dot = build_sfc_dot(legacy_sbc_recipe())
+    assert "#6DBE72" not in dot  # active green
+    assert "#BAD5BA" not in dot  # completed green
+
+
+def test_sfc_dot_execution_view_colors_active_and_completed():
+    recipe = legacy_sbc_recipe()
+    completed, active = sfc_state_from_active(recipe, "PRODUCTION")
+    assert completed == ("INOCULATE", "GROWTH")
+    assert active == "PRODUCTION"
+    dot = build_sfc_dot(recipe, active_phase=active, completed_phases=completed)
+    # Active green + completed muted-green should both appear.
+    assert "#6DBE72" in dot
+    assert "#BAD5BA" in dot
+
+
+def test_sfc_dot_held_and_aborted_colors():
+    recipe = legacy_sbc_recipe()
+    dot_held = build_sfc_dot(recipe, held_phase="GROWTH")
+    dot_abort = build_sfc_dot(recipe, aborted_phase="HARVEST")
+    assert "#F5D76E" in dot_held    # amber
+    assert "#E57A7A" in dot_abort   # red
+
+
+def test_sfc_trigger_text_for_hybrid_trigger():
+    recipe = Recipe(name="hybrid", phases=(
+        Phase(name="P1",
+              setpoints=SetpointProfile(),
+              transition=TransitionTrigger(
+                  max_hours=12.0,
+                  state_var="X", state_op=">=", state_value=4.5,
+              )),
+    ))
+    dot = build_sfc_dot(recipe)
+    # Both components present, joined.
+    assert "t≥12h" in dot
+    assert "X>=4.5" in dot
+    assert " or " in dot
+
+
+def test_sfc_state_from_active_handles_unknown_name():
+    recipe = legacy_sbc_recipe()
+    completed, active = sfc_state_from_active(recipe, "NOT_A_PHASE")
+    assert completed == ()
+    assert active is None
+
+
+def test_sfc_state_from_active_first_phase_has_no_completed():
+    recipe = legacy_sbc_recipe()
+    completed, active = sfc_state_from_active(recipe, "INOCULATE")
+    assert completed == ()
+    assert active == "INOCULATE"
+
+
+# ---------------------------------------------------------------------------
+# units.py — Kelvin ↔ Celsius
+# ---------------------------------------------------------------------------
+
+def test_k_c_round_trip():
+    # Typical fermentation setpoint: 298.15 K = 25.0 °C
+    assert k_to_c(298.15) == pytest.approx(25.0)
+    assert c_to_k(25.0) == pytest.approx(298.15)
+    # Round-trip for a few arbitrary values
+    for c in (0.0, 18.5, 37.0, 100.0):
+        assert k_to_c(c_to_k(c)) == pytest.approx(c)
+
+
+def test_format_temp_c_rendering():
+    assert format_temp_c(298.15) == "25.0°C"
+    assert format_temp_c(298.15, decimals=2) == "25.00°C"
+
+
+def test_sfc_step_box_renders_temp_in_celsius():
+    """If a phase has T_sp set (in Kelvin), the SFC step-box summary
+    should display it in Celsius — the UI boundary contract."""
+    recipe = Recipe(name="warm", phases=(
+        Phase(
+            name="BAKE",
+            setpoints=SetpointProfile(T_sp=298.15),
+            transition=TransitionTrigger(max_hours=5.0),
+        ),
+    ))
+    dot = build_sfc_dot(recipe)
+    assert "T=25.0°C" in dot
+    # The Kelvin value shouldn't leak into the display.
+    assert "T=298.15" not in dot
+    assert "T=298" not in dot
 
 
 # ---------------------------------------------------------------------------

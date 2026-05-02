@@ -17,6 +17,7 @@ import json
 import streamlit as st
 
 from indpensim.recipe import from_dict
+from indpensim.ui.glossary import render_glossary_expander
 from indpensim.ui.state import (
     current_recipe,
     empty_phase,
@@ -29,6 +30,7 @@ from indpensim.ui.widgets import phase_editor
 
 st.set_page_config(page_title="Authoring | indpensim", layout="wide")
 init_session()
+render_glossary_expander()
 
 st.title("Recipe authoring")
 

@@ -34,11 +34,14 @@ class SetpointProfile:
     phase does not drive that channel — the executor falls through to
     the recipe's default behavior (for now: zero).
 
-    ``T_sp`` and ``pH_sp`` are reserved for future per-phase overrides
-    of the temperature / pH setpoints. ``None`` (the default) means the
-    controller continues reading from ``ControlFlags``; they are not
-    yet wired into ``controller_step`` and legacy parity depends on
-    them staying ``None`` for ``legacy_sbc_recipe()``.
+    ``T_sp`` (Kelvin) and ``pH_sp`` are per-phase overrides of the
+    temperature / pH setpoints. ``None`` (the default) means the
+    controller falls back to ``ControlFlags.T_sp`` /
+    ``ControlFlags.pH_sp``. When set, the value applies for every
+    sample while the phase is active; mid-batch phase advances cause
+    a step change in setpoint that the PID integral state carries
+    across. ``legacy_sbc_recipe()`` keeps both fields ``None`` to
+    preserve bit-for-bit MATLAB parity in the validation tier.
     """
     Fs:         SetpointSchedule = ()
     Foil:       SetpointSchedule = ()

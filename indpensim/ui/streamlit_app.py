@@ -15,6 +15,7 @@ import json
 import streamlit as st
 
 from indpensim.recipe import legacy_sbc_recipe, to_dict
+from indpensim.ui.glossary import render_glossary_expander
 from indpensim.ui.state import current_recipe, get_recipe_dict, init_session, reset_to_legacy
 
 st.set_page_config(
@@ -24,6 +25,7 @@ st.set_page_config(
 )
 
 init_session()
+render_glossary_expander()
 
 st.title("indpensim Recipe Studio")
 st.markdown(

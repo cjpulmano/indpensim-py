@@ -33,10 +33,17 @@ from indpensim.recipe.types import (
 
 
 class ResolvedSetpoints(NamedTuple):
-    """The 7 feed setpoints resolved at one sample k.
+    """The 7 feed setpoints resolved at one sample k, plus optional
+    per-phase ``T_sp``/``pH_sp`` overrides.
 
     ``Fdischarge`` is positive; the controller applies the sign.
     ``Fwater`` mirrors the legacy ``Fw``.
+
+    ``T_sp`` (Kelvin) and ``pH_sp`` are ``None`` when the active phase
+    does not override them; the controller falls back to
+    ``ControlFlags.T_sp`` / ``ControlFlags.pH_sp`` in that case. New
+    fields appended at the end for backwards-compatible positional
+    consumers.
     """
     Fs: float
     Foil: float
@@ -45,6 +52,8 @@ class ResolvedSetpoints(NamedTuple):
     Fdischarge: float
     Fwater: float
     Fpaa: float
+    T_sp: float | None = None
+    pH_sp: float | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +142,8 @@ class RecipeExecutor:
             Fdischarge=_lookup(k, sp.Fdischarge),
             Fwater=_lookup(k, sp.Fwater),
             Fpaa=_lookup(k, sp.Fpaa),
+            T_sp=sp.T_sp,
+            pH_sp=sp.pH_sp,
         )
 
     # ------------------------------------------------------------------
