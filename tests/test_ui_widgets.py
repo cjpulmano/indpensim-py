@@ -288,3 +288,8 @@ def test_authoring_page_imports():
 def test_visualize_page_imports():
     import importlib
     importlib.import_module("indpensim.ui.pages.02_visualize")
+
+
+def test_run_page_imports():
+    import importlib
+    importlib.import_module("indpensim.ui.pages.03_run")

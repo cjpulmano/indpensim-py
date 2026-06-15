@@ -28,8 +28,35 @@ SETPOINT_GLOSSARY: tuple[tuple[str, str, str], ...] = (
 )
 
 
+# Process-state channels — the things the simulator observes. Shown on
+# the Run page's trajectory plots; named here so engineers can decode
+# the legend.
+STATE_GLOSSARY: tuple[tuple[str, str, str], ...] = (
+    ("P",   "Penicillin concentration — the product. Legacy recipe "
+            "reaches ~10-15 g/L by 230 h.",                          "g/L"),
+    ("X",   "Biomass concentration (P. chrysogenum cells). Grows "
+            "fast in GROWTH, levels off in PRODUCTION when cells "
+            "spend energy on P instead of replicating. Typical end: "
+            "~30-40 g/L.",                                           "g/L"),
+    ("S",   "Substrate (sugar) concentration in the broth. Driven "
+            "down by uptake, replenished by Fs feed.",               "g/L"),
+    ("DO2", "Dissolved oxygen. Closed-loop with Fg/RPM; falls "
+            "during high biomass / high feed.",                      "mg/L"),
+    ("pH",  "Broth pH. Controlled to ~6.5 by acid (Fa) and base "
+            "(Fb) flows.",                                           "—"),
+    ("T",   "Broth temperature. Controlled to ~298 K (25 °C) by "
+            "cooling (Fc) and heating (Fh) flows.",                  "K"),
+    ("V",   "Vessel liquid volume. Grows from feeds, drops on "
+            "discharge events.",                                     "L"),
+    ("PAA", "Phenoxyacetic acid concentration in the broth — the "
+            "penicillin precursor. Topped up by Fpaa.",              "mg/L"),
+    ("NH3", "Ammonia / nitrogen source concentration.",              "mg/L"),
+    ("Wt",  "Total broth mass.",                                     "kg"),
+)
+
+
 def render_glossary_expander(*, in_sidebar: bool = True, expanded: bool = False) -> None:
-    """Render the glossary table inside a Streamlit expander.
+    """Render the glossary tables inside a Streamlit expander.
 
     Call at the top of any page. Default places it in the sidebar so it
     stays available across pages.
@@ -37,14 +64,19 @@ def render_glossary_expander(*, in_sidebar: bool = True, expanded: bool = False)
     target = st.sidebar if in_sidebar else st
     with target.expander("Variable glossary", expanded=expanded):
         st.caption(
-            "Setpoint-channel names mirror the MATLAB simulator. Source: "
+            "Names mirror the MATLAB simulator. Source: "
             "`docs/state_vector.md`."
         )
         # `st.table` renders as static HTML with native text wrapping —
         # `st.dataframe` truncates with ellipsis, which cuts off longer
         # descriptions in the narrow sidebar column.
-        rows = [
+        st.markdown("**Setpoints** (what the controller drives)")
+        st.table([
             {"Name": name, "Description": desc, "Units": units}
             for name, desc, units in SETPOINT_GLOSSARY
-        ]
-        st.table(rows)
+        ])
+        st.markdown("**State variables** (what the simulator observes)")
+        st.table([
+            {"Name": name, "Description": desc, "Units": units}
+            for name, desc, units in STATE_GLOSSARY
+        ])
